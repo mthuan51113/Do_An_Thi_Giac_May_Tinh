@@ -1,0 +1,37 @@
+{
+  "verified_on": "2026-09-13",
+  "task_classes": ["angry", "contempt", "disgust", "fear", "happy", "neutral", "sad", "surprise"],
+  "local_dataset": {
+    "relative_path": "../dataset",
+    "split_counts": {"Train": 4330, "Val": 671, "Test": 714},
+    "byte_duplicate_groups": 0,
+    "decoded_rgb_duplicate_groups": 0,
+    "subject_disjoint_verified": false,
+    "source_license_verified": false
+  },
+  "downloads": [
+    {
+      "id": "ferplus_labels",
+      "source": "https://github.com/microsoft/FERPlus",
+      "path": "data/raw/ferplus/fer2013new.csv",
+      "bytes": 1602762,
+      "sha256": "9206e20d62f56475939f516847d61753e4860caeac9718b560129541b776fc2c",
+      "rows": 35887,
+      "contains_images": false,
+      "download_script": "scripts/download_ferplus_labels.py"
+    },
+    {
+      "id": "jaffe_v2",
+      "source": "https://zenodo.org/records/14974867",
+      "path": "data/raw/jaffe/jaffe.zip",
+      "bytes": 12290558,
+      "sha256": "6da27f5954f969c6f65d782911834dd66827ec3580e79b95073eb6cb93de5c3b",
+      "images": 213,
+      "prepared_path": "data/supplemental/jaffe/Train",
+      "role": "optional_supplemental_train_only",
+      "redistribution_allowed": false,
+      "use": "noncommercial_scientific_research_only",
+      "download_script": "scripts/download_jaffe.py"
+    }
+  ]
+}

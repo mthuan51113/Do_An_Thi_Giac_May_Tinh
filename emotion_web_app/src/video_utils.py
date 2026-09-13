@@ -1,3 +1,4 @@
+import math
 from collections import Counter
 from fractions import Fraction
 from pathlib import Path
@@ -5,9 +6,8 @@ from pathlib import Path
 import av
 import cv2
 
-from src.face_detector import detect_faces
-from src.predict import predict_emotion
-
+from .face_detector import detect_faces
+from .predict import predict_emotions
 
 BOX_COLOR = (40, 220, 120)
 TEXT_COLOR = (255, 255, 255)
@@ -39,7 +39,7 @@ def _draw_label(frame, x1, y1, text):
     )
 
 
-def process_frame(frame, model, class_names, return_results=False):
+def process_frame(frame, model, class_names, return_results=False, confidence_threshold=0.0):
     """
     Xử lý một frame: detect mặt, crop, predict cảm xúc và vẽ kết quả.
 
@@ -52,21 +52,22 @@ def process_frame(frame, model, class_names, return_results=False):
     Returns:
         Frame đã vẽ kết quả. Nếu return_results=True, trả về (frame, results).
     """
-    annotated_frame = frame.copy()
+    if not 0 <= confidence_threshold <= 1:
+        raise ValueError("Ngưỡng tin cậy phải nằm trong khoảng 0 đến 1.")
     boxes = detect_faces(frame)
+    annotated_frame = frame.copy()
+    crops = [frame[y1:y2, x1:x2] for x1, y1, x2, y2 in boxes]
+    predictions = predict_emotions(crops, model, class_names)
     results = []
 
-    for face_id, (x1, y1, x2, y2) in enumerate(boxes, start=1):
-        face_crop = frame[y1:y2, x1:x2]
-
-        if face_crop.size == 0:
-            continue
-
-        prediction = predict_emotion(face_crop, model, class_names)
-        label = prediction["label"]
+    for face_id, (box, prediction) in enumerate(zip(boxes, predictions), start=1):
+        x1, y1, x2, y2 = box
         confidence = prediction["confidence"]
+        uncertain = confidence < confidence_threshold
+        label = "uncertain" if uncertain else prediction["label"]
 
-        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), BOX_COLOR, 2)
+        color = (40, 180, 240) if uncertain else BOX_COLOR
+        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
         _draw_label(annotated_frame, x1, y1, f"{label}: {confidence * 100:.1f}%")
 
         results.append(
@@ -74,6 +75,8 @@ def process_frame(frame, model, class_names, return_results=False):
                 "face_id": face_id,
                 "box": (x1, y1, x2, y2),
                 "label": label,
+                "predicted_label": prediction["label"],
+                "uncertain": uncertain,
                 "confidence": confidence,
                 "probabilities": prediction["probabilities"],
             }
@@ -92,6 +95,7 @@ def process_video_file(
     class_names,
     progress_callback=None,
     preview_callback=None,
+    confidence_threshold=0.0,
 ):
     """
     Xử lý video upload và lưu video kết quả.
@@ -101,14 +105,19 @@ def process_video_file(
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
+    if input_path.resolve() == output_path.resolve():
+        raise ValueError("Đường dẫn video đầu ra phải khác đầu vào.")
+    if output_path.exists():
+        raise FileExistsError("File đầu ra đã tồn tại; hãy chọn tên mới.")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
+        cap.release()
         raise RuntimeError("Không mở được video. Hãy kiểm tra định dạng file upload.")
 
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0:
+    if not math.isfinite(fps) or fps <= 0:
         fps = 25
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -123,31 +132,36 @@ def process_video_file(
         cap.release()
         raise RuntimeError("Video có kích thước không hợp lệ.")
 
-    output_container = av.open(
-        str(output_path), mode="w", format="mp4", options={"movflags": "+faststart"}
-    )
-    output_stream = output_container.add_stream(
-        "libx264", rate=Fraction(fps).limit_denominator(1000)
-    )
-    output_stream.width = output_width
-    output_stream.height = output_height
-    output_stream.pix_fmt = "yuv420p"
-    output_stream.options = {"preset": "veryfast", "crf": "23"}
-
     frame_index = 0
     frames_with_faces = 0
     total_face_detections = 0
     emotion_counts = Counter()
     preview_stride = max(int(round(fps / 2)), 1)
 
+    output_container = None
+    completed = False
     try:
+        output_container = av.open(
+            str(output_path), mode="w", format="mp4", options={"movflags": "+faststart"}
+        )
+        output_stream = output_container.add_stream(
+            "libx264", rate=Fraction(fps).limit_denominator(1000)
+        )
+        output_stream.width = output_width
+        output_stream.height = output_height
+        output_stream.pix_fmt = "yuv420p"
+        output_stream.options = {"preset": "veryfast", "crf": "23"}
         while True:
             success, frame = cap.read()
             if not success:
                 break
 
             annotated_frame, frame_results = process_frame(
-                frame, model, class_names, return_results=True
+                frame,
+                model,
+                class_names,
+                return_results=True,
+                confidence_threshold=confidence_threshold,
             )
             encoded_frame = annotated_frame[:output_height, :output_width]
             video_frame = av.VideoFrame.from_ndarray(encoded_frame, format="bgr24")
@@ -169,14 +183,16 @@ def process_video_file(
 
         for packet in output_stream.encode():
             output_container.mux(packet)
-    except Exception:
         output_container.close()
-        output_path.unlink(missing_ok=True)
-        raise
+        completed = True
     finally:
         cap.release()
-
-    output_container.close()
+        if not completed:
+            try:
+                if output_container is not None:
+                    output_container.close()
+            finally:
+                output_path.unlink(missing_ok=True)
 
     if frame_index == 0:
         output_path.unlink(missing_ok=True)

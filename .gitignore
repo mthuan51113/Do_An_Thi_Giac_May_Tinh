@@ -1,8 +1,38 @@
 
-# Ignore trained models and generated results
-models/
-ket_qua/
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Local datasets, weights and generated media (the existing app checkpoint stays tracked)
+/models/
+/ket_qua/
+/data/raw/
+/data/prepared/
+/data/supplemental/
+/data/real_world/
+/runs/
+emotion_web_app/runs/
+*.tflite
 *.pth
 *.pt
 *.h5
 *.onnx
+*.zip
+*.mp4
+*.avi
+*.mov
+*.log
+
+# OS/editor state
+.DS_Store
+Thumbs.db
+.vscode/

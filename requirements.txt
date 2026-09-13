@@ -1,0 +1,3 @@
+-r emotion_web_app/requirements.txt
+scikit-learn>=1.5,<2
+tqdm>=4.66,<5

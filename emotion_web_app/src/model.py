@@ -125,49 +125,26 @@ def custom_resnet18(num_classes, in_channels=3):
 
 
 def hsemotion_efficientnet_b0(num_classes):
-    """Dựng backbone giống checkpoint enet_b0_8_best_vgaf đã fine-tune."""
-    try:
-        from hsemotion.facial_emotions import HSEmotionRecognizer
-    except ImportError as error:
-        raise ImportError(
-            "Checkpoint EfficientNet cần hsemotion. Hãy cài: pip install hsemotion==0.3.0"
-        ) from error
+    import timm
 
-    # hsemotion 0.3.0 load model timm hoàn chỉnh từ cache. File này là
-    # model tin cậy của thư viện; PyTorch mới cần weights_only=False.
-    original_torch_load = torch.load
-
-    def trusted_hsemotion_load(*args, **kwargs):
-        kwargs["weights_only"] = False
-        return original_torch_load(*args, **kwargs)
-
-    torch.load = trusted_hsemotion_load
-    try:
-        recognizer = HSEmotionRecognizer(
-            model_name="enet_b0_8_best_vgaf", device="cpu"
-        )
-    finally:
-        torch.load = original_torch_load
-
-    model = recognizer.model
-    feature_dim = int(recognizer.classifier_weights.shape[1])
-    model.classifier = nn.Linear(feature_dim, num_classes)
-
-    # Tương thích state_dict giữa checkpoint timm cũ và timm hiện tại.
-    for module in model.modules():
-        if module.__class__.__name__ in {"DepthwiseSeparableConv", "InvertedResidual"}:
-            if not hasattr(module, "conv_s2d"):
-                module.conv_s2d = None
-            if not hasattr(module, "aa"):
-                module.aa = nn.Identity()
-
-    return model
+    return timm.create_model("efficientnet_b0", pretrained=False, num_classes=num_classes)
 
 
 def build_model(num_classes, architecture="custom_resnet"):
     """Dựng đúng kiến trúc theo metadata lưu trong checkpoint."""
     if architecture == "hsemotion_enet_b0_8_best_vgaf":
         return hsemotion_efficientnet_b0(num_classes=num_classes)
+    if architecture == "efficientnet_b0":
+        from torchvision.models import efficientnet_b0
+
+        model = efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+        return model
+    if architecture in {"convnext_tiny", "efficientnet_b2", "resnet50"}:
+        import timm
+
+        return timm.create_model(architecture, pretrained=False, num_classes=num_classes)
     if architecture in {"custom_resnet", "custom_resnet18", None}:
         return custom_resnet18(num_classes=num_classes, in_channels=3)
     raise ValueError(f"Kiến trúc checkpoint chưa được hỗ trợ: {architecture}")
+
